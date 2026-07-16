@@ -6,7 +6,7 @@ app = Flask(__name__)
 # Clave secreta para poder usar mensajes de alerta (flash) en Flask
 app.secret_key = os.environ.get("SECRET_KEY", "super_secret_key_nestle")
 
-# Conexión a MongoDB (Usa variable de entorno para seguridad, con tu URI por defecto)
+# Conexión a MongoDB
 MONGO_URI = os.environ.get(
     "MONGO_URI", 
     "mongodb+srv://ANDRES_VANEGAS:CF32fUhOhrj70dY5@cluster0.dtureen.mongodb.net/?appName=Cluster0"
@@ -15,7 +15,7 @@ client = MongoClient(MONGO_URI)
 db = client['NestleDB']
 visitas_col = db['visitas']
 
-# Plantilla HTML única e integrada para no necesitar archivos adicionales
+# Plantilla HTML corregida sin la etiqueta prohibida {% empty %}
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="es">
@@ -54,16 +54,18 @@ HTML_TEMPLATE = """
                             </tr>
                         </thead>
                         <tbody>
-                            {% for r in resultados %}
-                            <tr>
-                                <td>{{ r._id or "Sin Fecha" }}</td>
-                                <td><span class="badge bg-secondary fs-6">{{ r.cantidad }}</span></td>
-                            </tr>
-                            {% empty %}
-                            <tr>
-                                <td colspan="2" class="text-center text-muted">No se encontraron registros.</td>
-                            </tr>
-                            {% endfor %}
+                            {% if resultados %}
+                                {% for r in resultados %}
+                                <tr>
+                                    <td>{{ r._id or "Sin Fecha" }}</td>
+                                    <td><span class="badge bg-secondary fs-6">{{ r.cantidad }}</span></td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="2" class="text-center text-muted">No se encontraron registros.</td>
+                                </tr>
+                            {% endif %}
                         </tbody>
                     </table>
                 </div>
@@ -114,7 +116,6 @@ HTML_TEMPLATE = """
 
 @app.route("/")
 def index():
-    # Agrupamos los datos por día para mostrárselos al usuario
     pipeline = [
         {"$group": {"_id": {"$substr": ["$fecha", 0, 10]}, "cantidad": {"$sum": 1}}},
         {"$sort": {"_id": 1}}
@@ -124,16 +125,14 @@ def index():
 
 @app.route("/confirmar", methods=["POST"])
 def confirmar():
-    fecha_seleccionada = request.form.get("fecha_limite") # Viene en formato YYYY-MM-DD
+    fecha_seleccionada = request.form.get("fecha_limite")
     
-    # Agrupamos de nuevo los datos para mantener la tabla en pantalla
     pipeline = [
         {"$group": {"_id": {"$substr": ["$fecha", 0, 10]}, "cantidad": {"$sum": 1}}},
         {"$sort": {"_id": 1}}
     ]
     resultados = list(visitas_col.aggregate(pipeline))
     
-    # Filtro para ver cuántos registros se verían afectados
     fecha_limite_string = f"{fecha_seleccionada} 23:59:59"
     filtro = {"fecha": {"$lte": fecha_limite_string}}
     conteo_eliminar = visitas_col.count_documents(filtro)
@@ -160,6 +159,5 @@ def eliminar():
     return redirect(url_for("index"))
 
 if __name__ == "__main__":
-    # Render asigna dinámicamente un puerto en la variable de entorno PORT
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
